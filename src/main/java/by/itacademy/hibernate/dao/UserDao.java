@@ -1,14 +1,31 @@
 package by.itacademy.hibernate.dao;
 
 
-import by.itacademy.hibernate.entity.Payment;
-import by.itacademy.hibernate.entity.User;
+import by.itacademy.hibernate.dto.PaymentFilter;
+import by.itacademy.hibernate.dto.QPredicate;
+import by.itacademy.hibernate.dto.UserFilter;
+import by.itacademy.hibernate.entity.*;
+import com.querydsl.core.Tuple;
+import com.querydsl.core.types.Order;
+import com.querydsl.core.types.OrderSpecifier;
+import com.querydsl.core.types.Predicate;
+import com.querydsl.core.types.dsl.SimplePath;
+import com.querydsl.jpa.impl.JPAQuery;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import org.hibernate.Session;
 
+import java.time.LocalDate;
+import java.time.Year;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+
+import static by.itacademy.hibernate.entity.QChat.*;
+import static by.itacademy.hibernate.entity.QCompany.company;
+import static by.itacademy.hibernate.entity.QPayment.payment;
+import static by.itacademy.hibernate.entity.QUser.user;
+import static by.itacademy.hibernate.entity.QUserChat.*;
 
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public class UserDao {
@@ -19,23 +36,17 @@ public class UserDao {
      * Возвращает всех сотрудников
      */
     public List<User> findAll(Session session) {
-        List<User> users = session.createQuery("select u from User u", User.class).list();
-        return users;
+
+
+        return new JPAQuery<User>(session).select(user).from(user).fetch();
     }
 
     /**
      * Возвращает всех сотрудников с указанным именем
      */
     public List<User> findAllByFirstName(Session session, String firstName) {
-
-        List<User> users = session.createQuery("""
-                        select u 
-                        from User u 
-                        where u.personalInfo.firstname = :firstName""", User.class)
-                .setParameter("firstName", firstName)
-                .list();
-
-        return users;
+        return new JPAQuery<User>(session).select(user).from(user)
+                .where(user.personalInfo().firstname.eq(firstName)).fetch();
     }
 
     /**
@@ -43,29 +54,19 @@ public class UserDao {
      */
     public List<User> findLimitedUsersOrderedByBirthday(Session session, int limit) {
 
-        List<User> users = session.createQuery("""
-                        select u 
-                        from User u
-                        order by u.personalInfo.birthDate
-                        """, User.class)
-                .setMaxResults(limit)
-                .list();
-        return users;
+        return new JPAQuery<User>(session).select(user).from(user)
+                .orderBy(new OrderSpecifier(Order.ASC, user.personalInfo().birthDate))
+                .limit(limit).fetch();
     }
 
     /**
      * Возвращает всех сотрудников компании с указанным названием
      */
     public List<User> findAllByCompanyName(Session session, String companyName) {
-        List<User> users = session.createQuery("""
-                            select u
-                            from User u
-                            left join u.company c 
-                            where c.name = :companyName
-                        """, User.class)
-                .setParameter("companyName", companyName)
-                .list();
-        return users;
+
+        return new JPAQuery<User>(session).select(user).from(company)
+                .join(company.users, user)
+                .where(company.name.eq(companyName)).fetch();
     }
 
     /**
@@ -73,51 +74,56 @@ public class UserDao {
      * упорядоченные по имени сотрудника, а затем по размеру выплаты
      */
     public List<Payment> findAllPaymentsByCompanyName(Session session, String companyName) {
-        List<Payment> payments = session.createQuery("""
-                                select p
-                                from User u
-                                join u.company c 
-                                join u.payments p 
-                                where c.name = :companyName
-                                order by u.personalInfo.firstname, p.amount
-                        """, Payment.class)
-                .setParameter("companyName", companyName)
-                .list();
-        return payments;
+
+        return new JPAQuery<Payment>(session)
+                .select(payment)
+                .from(company)
+                .join(company.users, user)
+                .join(user.payments, payment)
+                .where(company.name.eq(companyName))
+                .orderBy(user.personalInfo().firstname.asc(), payment.amount.asc())
+                .fetch()
+                ;
     }
 
     /**
      * Возвращает среднюю зарплату сотрудника с указанными именем и фамилией
      */
-    public Double findAveragePaymentAmountByFirstAndLastNames(Session session, String firstName, String lastName) {
+    public Double findAveragePaymentAmountByFirstAndLastNames(Session session, PaymentFilter filter) {
 
-        List<Double> avg = session.createQuery("""
-                         select avg(p.amount) 
-                         from User u
-                         join u.payments p 
-                         where u.personalInfo.firstname = :firstName and u.personalInfo.lastname = :lastName
-                        """, Double.class)
-                .setParameter("firstName", firstName)
-                .setParameter("lastName", lastName)
-                .list();
+        /*List<Predicate> predicates = new ArrayList<>();
+        if (filter.getFirstName() != null)
+            predicates.add(user.personalInfo().firstname.eq(filter.getFirstName()));
+        if (filter.getLastname() != null)
+            predicates.add(user.personalInfo().lastname.eq(filter.getLastname()));*/
 
-        return avg.get(0);
+        var predicate = QPredicate.builder()
+                .add(filter.getFirstName(), user.personalInfo().firstname::eq)
+                .add(filter.getLastname(), user.personalInfo().lastname::eq)
+                .buildAnd();
+
+        return new JPAQuery<Double>(session)
+                .select(payment.amount.avg())
+                .from(user)
+                .join(user.payments, payment)
+                .where(predicate)
+                .fetchOne();
     }
 
     /**
      * Возвращает для каждой компании: название, среднюю зарплату всех её сотрудников. Компании упорядочены по названию.
      */
-    public List<Object[]> findCompanyNamesWithAvgUserPaymentsOrderedByCompanyName(Session session) {
+    public List<Tuple> findCompanyNamesWithAvgUserPaymentsOrderedByCompanyName(Session session) {
 
-        var obj = session.createQuery("""
-                select c.name, avg(p.amount)
-                from User u
-                right join u.company c
-                right join u.payments p  
-                group by c.name
-                order by c.name
-                """).list();
-        return obj;
+        return new JPAQuery<Tuple>(session)
+                .select(company.name, payment.amount.avg())
+                .from(company)
+                .join(company.users, user)
+                .join(user.payments, payment)
+                .groupBy(company.name)
+                .orderBy(payment.amount.avg().asc())
+                .fetch();
+
     }
 
     /**
@@ -125,24 +131,86 @@ public class UserDao {
      * больше среднего размера выплат всех сотрудников
      * Упорядочить по имени сотрудника
      */
-    public List<Object[]> isItPossible(Session session) {
+    public List<Tuple> isItPossible(Session session) {
 
-        var payout = session.createQuery("""
-                select avg(p.amount)
-                from Payment p
-                """).list();
+        return new JPAQuery<Tuple>(session)
+                .select(user, payment.amount.avg())
+                .from(user)
+                .join(user.payments, payment)
+                .groupBy(user.id)
+                .having(payment.amount.avg().gt(
+                        new JPAQuery<Double>(session)
+                                .select(payment.amount.avg())
+                                .from(payment)
+                ))
+                .orderBy(user.personalInfo().firstname.asc())
+                .fetch();
+    }
 
-        var user = session.createQuery("""
-                select u, avg(p.amount)
-                from User u
-                right join u.payments p 
-                group by u
-                having avg(p.amount) > :payout
-                order by u.personalInfo.firstname
-                """)
-                .setParameter("payout", payout.get(0))
-                .list();
-        return user;
+    /**
+     * Вывести все чаты, в которых участвует определенный пользователь.
+     */
+    public List<Tuple> findAllUserChats(Session session, UserFilter filter) {
+
+        var predicate = QPredicate.builder()
+                .add(filter.getFirstName(), user.personalInfo().firstname::eq)
+                .add(filter.getLastName(), user.personalInfo().lastname::eq)
+                .buildAnd();
+
+        return new JPAQuery<Tuple>(session)
+                .select(user.username, chat.name)
+                .from(userChat)
+                .join(userChat.user(), user)
+                .join(userChat.chat(), chat)
+                .where(predicate)
+                .groupBy(user, chat)
+                .fetch();
+
+    }
+    /**
+     * Выберите пользователей, у которых в имени пользователя содержится {str}
+     */
+    public List<User> findUserByLine(Session session, String str){
+
+        return new JPAQuery<User>(session)
+                .select(user)
+                .from(user)
+                .where(user.username.contains(str))
+                .fetch();
+    }
+
+    /**
+     * Возвращает пользователей, которые живут на улице {street}
+     * */
+
+    public List<User> findUsersByStreet(Session session, String street){
+        return new JPAQuery<User>(session)
+                .select(user)
+                .from(user)
+                .where(user.profile().street.eq(street))
+                .fetch();
+    }
+
+    /**
+     * Возвращает всех админов
+     * */
+    public List<User> findAdmin(Session session){
+        return new JPAQuery<User>(session)
+                .select(user)
+                .from(user)
+                .where(user.role.eq(Role.ADMIN))
+                .fetch();
+    }
+
+    /**
+     * Возвращает всех юзеров
+     * */
+    public List<User> findUser(Session session){
+        return new JPAQuery<User>(session)
+                .select(user)
+                .from(user)
+                .where(user.role.eq(Role.USER))
+                .fetch();
     }
 
     public static UserDao getInstance() {

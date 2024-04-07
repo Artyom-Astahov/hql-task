@@ -1,10 +1,16 @@
 package by.itacademy.hibernate.dao;
 
 
+import by.itacademy.hibernate.dto.PaymentFilter;
+import by.itacademy.hibernate.dto.UserFilter;
+import by.itacademy.hibernate.entity.Birthday;
+import by.itacademy.hibernate.entity.Role;
 import by.itacademy.hibernate.utils.TestDataImporter;
 import by.itacademy.hibernate.entity.Payment;
 import by.itacademy.hibernate.entity.User;
 import by.itacademy.hibernate.util.HibernateUtil;
+import com.querydsl.core.Tuple;
+import com.querydsl.core.types.dsl.SimplePath;
 import lombok.Cleanup;
 import org.hibernate.Session;
 import org.hibernate.SessionFactory;
@@ -13,6 +19,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
+import java.time.LocalDate;
 import java.util.List;
 
 import static java.util.stream.Collectors.toList;
@@ -110,7 +117,8 @@ class UserDaoTest {
         @Cleanup Session session = sessionFactory.openSession();
         session.beginTransaction();
 
-        Double averagePaymentAmount = userDao.findAveragePaymentAmountByFirstAndLastNames(session, "Bill", "Gates");
+        Double averagePaymentAmount = userDao.findAveragePaymentAmountByFirstAndLastNames(session, PaymentFilter.builder()
+                .firstName("Bill").lastname("Gates").build());
         assertThat(averagePaymentAmount).isEqualTo(300.0);
 
         session.getTransaction().commit();
@@ -121,13 +129,13 @@ class UserDaoTest {
         @Cleanup Session session = sessionFactory.openSession();
         session.beginTransaction();
 
-        List<Object[]> results = userDao.findCompanyNamesWithAvgUserPaymentsOrderedByCompanyName(session);
+        List<Tuple> results = userDao.findCompanyNamesWithAvgUserPaymentsOrderedByCompanyName(session);
         assertThat(results).hasSize(3);
 
-        List<String> orgNames = results.stream().map(a -> (String) a[0]).collect(toList());
+        List<String> orgNames = results.stream().map(a -> a.get(0, String.class)).collect(toList());
         assertThat(orgNames).contains("Apple", "Google", "Microsoft");
 
-        List<Double> orgAvgPayments = results.stream().map(a -> (Double) a[1]).collect(toList());
+        List<Double> orgAvgPayments = results.stream().map(a -> a.get(1, Double.class)).collect(toList());
         assertThat(orgAvgPayments).contains(410.0, 400.0, 300.0);
 
         session.getTransaction().commit();
@@ -138,14 +146,80 @@ class UserDaoTest {
         @Cleanup Session session = sessionFactory.openSession();
         session.beginTransaction();
 
-        List<Object[]> results = userDao.isItPossible(session);
+        List<Tuple> results = userDao.isItPossible(session);
         assertThat(results).hasSize(2);
 
-        List<String> names = results.stream().map(r -> ((User) r[0]).fullName()).collect(toList());
+        List<String> names = results.stream().map(r -> (r.get(0, User.class)).fullName()).collect(toList());
         assertThat(names).contains("Sergey Brin", "Steve Jobs");
 
-        List<Double> averagePayments = results.stream().map(r -> (Double) r[1]).collect(toList());
+        List<Double> averagePayments = results.stream().map(r -> r.get(1, Double.class)).collect(toList());
         assertThat(averagePayments).contains(500.0, 450.0);
+
+        session.getTransaction().commit();
+    }
+
+    @Test
+    void findAllUserChats(){
+        @Cleanup Session session = sessionFactory.openSession();
+        session.beginTransaction();
+
+        List<Tuple> results = userDao.findAllUserChats(session, UserFilter.builder()
+                .firstName("Tim")
+                .lastName("Cook")
+                .build());
+
+        List<String> username = results.stream().map(a -> a.get(0, String.class)).collect(toList());
+        List<String> chatName = results.stream().map(a -> a.get(1, String.class)).collect(toList());
+
+        assertThat(username).contains("TimCook");
+        assertThat(chatName).contains("Working chat in telegram");
+        session.getTransaction().commit();
+    }
+
+    @Test
+    public void findUserByLine(){
+        @Cleanup Session session = sessionFactory.openSession();
+        session.beginTransaction();
+
+        List<User> results = userDao.findUserByLine(session, "G");
+        List<String> userName = results.stream().map(a -> a.getUsername()).collect(toList());
+        assertThat(userName).contains("BillGates", "DianeGreene");
+        session.getTransaction().commit();
+    }
+
+    @Test
+    public void findUsersByStreet(){
+        @Cleanup Session session = sessionFactory.openSession();
+        session.beginTransaction();
+
+        String street = "1600 Pennsylvania Ave.";
+        List<User> results = userDao.findUsersByStreet(session, street);
+        List<String> streetList = results.stream().map(User::getUsername).collect(toList());
+        assertThat(streetList).contains("TimCook", "DianeGreene");
+
+        session.getTransaction().commit();
+    }
+
+    @Test
+    public void findAdmin(){
+        @Cleanup Session session = sessionFactory.openSession();
+        session.beginTransaction();
+
+        List<User> results = userDao.findAdmin(session);
+        List<Role> RoleList = results.stream().map(User::getRole).collect(toList());
+        assertThat(RoleList).contains(Role.ADMIN);
+
+        session.getTransaction().commit();
+    }
+
+    @Test
+    public void findUser(){
+        @Cleanup Session session = sessionFactory.openSession();
+        session.beginTransaction();
+
+        List<User> results = userDao.findUser(session);
+        List<Role> RoleList = results.stream().map(User::getRole).collect(toList());
+        assertThat(RoleList).contains(Role.USER);
 
         session.getTransaction().commit();
     }

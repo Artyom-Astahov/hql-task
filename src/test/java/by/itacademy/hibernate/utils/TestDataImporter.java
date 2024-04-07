@@ -7,6 +7,7 @@ import lombok.experimental.UtilityClass;
 import org.hibernate.Session;
 import org.hibernate.SessionFactory;
 
+import javax.persistence.Enumerated;
 import java.time.LocalDate;
 import java.time.Month;
 
@@ -21,15 +22,26 @@ public class TestDataImporter {
         Company google = saveCompany(session, "Google");
 
         User billGates = saveUser(session, "Bill", "Gates",
-                LocalDate.of(1955, Month.OCTOBER, 28), microsoft);
+                LocalDate.of(1955, Month.OCTOBER, 28), microsoft, Role.USER);
         User steveJobs = saveUser(session, "Steve", "Jobs",
-                LocalDate.of(1955, Month.FEBRUARY, 24), apple);
+                LocalDate.of(1955, Month.FEBRUARY, 24), apple, Role.ADMIN);
         User sergeyBrin = saveUser(session, "Sergey", "Brin",
-                LocalDate.of(1973, Month.AUGUST, 21), google);
+                LocalDate.of(1973, Month.AUGUST, 21), google, Role.USER);
         User timCook = saveUser(session, "Tim", "Cook",
-                LocalDate.of(1960, Month.NOVEMBER, 1), apple);
+                LocalDate.of(1960, Month.NOVEMBER, 1), apple, Role.ADMIN);
         User dianeGreene = saveUser(session, "Diane", "Greene",
-                LocalDate.of(1955, Month.JANUARY, 1), google);
+                LocalDate.of(1955, Month.JANUARY, 1), google, Role.USER);
+
+        Chat telegramTimCook = saveChat(session, "Working chat in telegram");
+
+        addUserSetChat(session, timCook, telegramTimCook);
+
+        Profile profileTimCook = saveProfile(session, timCook, Language.JAVA, "1600 Pennsylvania Ave.");
+        Profile profileBillGates = saveProfile(session, billGates, Language.GO, "10 Downing Street");
+        Profile profileSteveJobs = saveProfile(session, steveJobs, Language.KOTLIN, "500 South Great Room Trail");
+        Profile profileSergeyBrin = saveProfile(session, sergeyBrin, Language.PYTHON, "123 Main Street");
+        Profile profileDianeGreene = saveProfile(session, dianeGreene, Language.JAVA, "1600 Pennsylvania Ave.");
+
 
         savePayment(session, billGates, 100);
         savePayment(session, billGates, 300);
@@ -60,11 +72,25 @@ public class TestDataImporter {
         return company;
     }
 
+    private Profile saveProfile(Session session,
+                                User user,
+                                Enum<Language> language,
+                                String street) {
+        Profile profile = Profile.builder()
+                .street(street)
+                .language(language.toString())
+                .build();
+        profile.setUser(user);
+        session.save(profile);
+        return profile;
+    }
+
     private User saveUser(Session session,
                           String firstName,
                           String lastName,
                           LocalDate birthday,
-                          Company company) {
+                          Company company,
+                          Role role) {
         User user = User.builder()
                 .username(firstName + lastName)
                 .personalInfo(PersonalInfo.builder()
@@ -72,6 +98,7 @@ public class TestDataImporter {
                         .lastname(lastName)
                         .birthDate(new Birthday(birthday))
                         .build())
+                .role(role)
                 .company(company)
                 .build();
         session.save(user);
@@ -85,5 +112,21 @@ public class TestDataImporter {
                 .amount(amount)
                 .build();
         session.save(payment);
+    }
+
+    private Chat saveChat(Session session, String name) {
+        Chat chat = Chat.builder()
+                .name(name)
+                .build();
+        session.save(chat);
+        return chat;
+    }
+
+    private void addUserSetChat(Session session, User user, Chat chat) {
+        UserChat userChat = UserChat.builder().build();
+        userChat.setChat(chat);
+        userChat.setUser(user);
+        session.save(userChat);
+
     }
 }
